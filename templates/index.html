@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🎶 Music Bot</title>
+    <style>
+        body { font-family: Arial; background:#111; color:white; text-align:center; }
+        .card { background:#222; margin:20px auto; padding:20px; width:60%; border-radius:10px; }
+        button { margin:5px; padding:10px; background:#00ffcc; border:none; cursor:pointer; }
+    </style>
+</head>
+<body>
+
+<h1>🎶 Discord Music Bot</h1>
+
+<div class="card">
+    <h2>Now Playing</h2>
+    <div id="now">Chargement...</div>
+</div>
+
+<div class="card">
+    <h2>Controls</h2>
+    <button onclick="control('pause')">⏸ Pause</button>
+    <button onclick="control('resume')">▶ Resume</button>
+    <button onclick="control('skip')">⏭ Skip</button>
+    <button onclick="control('loop/song')">🔁 Song Loop</button>
+    <button onclick="control('loop/queue')">🔁 Queue Loop</button>
+</div>
+
+<div class="card">
+    <h2>Queue</h2>
+    <pre id="queue"></pre>
+</div>
+
+<script>
+async function refresh(){
+    let now = await fetch('/now').then(r=>r.json());
+    let queue = await fetch('/queue').then(r=>r.json());
+
+    document.getElementById("now").innerText =
+        now ? JSON.stringify(now, null, 2) : "Rien";
+
+    document.getElementById("queue").innerText =
+        JSON.stringify(queue, null, 2);
+}
+
+async function control(action){
+    await fetch("/"+action, {method:"POST"});
+}
+
+setInterval(refresh, 2000);
+refresh();
+</script>
+
+</body>
+</html>
