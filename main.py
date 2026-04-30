@@ -54,7 +54,8 @@ async def play_next(ctx):
             print("Erreur:", e)
             await play_next(ctx)
 
-    else:
+    await asyncio.sleep(60)
+    if not ctx.voice_client.is_playing():
         await ctx.voice_client.disconnect()
 
 
