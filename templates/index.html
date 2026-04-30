@@ -1,54 +1,144 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>🎶 Music Bot</title>
-    <style>
-        body { font-family: Arial; background:#111; color:white; text-align:center; }
-        .card { background:#222; margin:20px auto; padding:20px; width:60%; border-radius:10px; }
-        button { margin:5px; padding:10px; background:#00ffcc; border:none; cursor:pointer; }
-    </style>
+<title>🎧 Music Dashboard PRO Flask</title>
+
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+<style>
+body {
+    margin:0;
+    font-family: Arial;
+    background:#0b0b0f;
+    color:white;
+}
+
+header {
+    text-align:center;
+    padding:20px;
+    color:#00ffcc;
+    font-size:22px;
+}
+
+.container {
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap:20px;
+    padding:20px;
+}
+
+.card {
+    background:#16161d;
+    border-radius:15px;
+    padding:15px;
+}
+
+img {
+    width:100%;
+    border-radius:10px;
+}
+
+button {
+    background:#00ffcc;
+    border:none;
+    padding:10px;
+    margin:5px;
+    border-radius:10px;
+    cursor:pointer;
+}
+
+.queue-item {
+    display:flex;
+    gap:10px;
+    background:#0f0f14;
+    padding:8px;
+    margin-bottom:8px;
+    border-radius:10px;
+}
+
+.queue-item img {
+    width:60px;
+    border-radius:8px;
+}
+
+.small {
+    font-size:12px;
+    color:#aaa;
+}
+</style>
 </head>
+
 <body>
 
-<h1>🎶 Discord Music Bot</h1>
+<header>🎧 Discord Music Bot Dashboard</header>
+
+<div class="container">
 
 <div class="card">
-    <h2>Now Playing</h2>
-    <div id="now">Chargement...</div>
+    <h3>Now Playing</h3>
+    <div id="now">Loading...</div>
 </div>
 
 <div class="card">
-    <h2>Controls</h2>
-    <button onclick="control('pause')">⏸ Pause</button>
-    <button onclick="control('resume')">▶ Resume</button>
-    <button onclick="control('skip')">⏭ Skip</button>
-    <button onclick="control('loop/song')">🔁 Song Loop</button>
-    <button onclick="control('loop/queue')">🔁 Queue Loop</button>
+    <h3>Controls</h3>
+    <button onclick="send('pause')">⏸</button>
+    <button onclick="send('resume')">▶</button>
+    <button onclick="send('skip')">⏭</button>
+    <button onclick="send('loop/song')">🔁 Song</button>
+    <button onclick="send('loop/queue')">🔁 Queue</button>
 </div>
 
 <div class="card">
-    <h2>Queue</h2>
-    <pre id="queue"></pre>
+    <h3>Queue</h3>
+    <div id="queue"></div>
+</div>
+
 </div>
 
 <script>
-async function refresh(){
-    let now = await fetch('/now').then(r=>r.json());
-    let queue = await fetch('/queue').then(r=>r.json());
 
-    document.getElementById("now").innerText =
-        now ? JSON.stringify(now, null, 2) : "Rien";
+const socket = io();
 
-    document.getElementById("queue").innerText =
-        JSON.stringify(queue, null, 2);
+socket.on("update", (data) => {
+    renderNow(data.current);
+    renderQueue(data.queue);
+});
+
+function renderNow(current){
+    let g = Object.keys(current || {})[0];
+    let song = current?.[g];
+
+    if(!song){
+        document.getElementById("now").innerHTML = "Rien";
+        return;
+    }
+
+    document.getElementById("now").innerHTML = `
+        <img src="${song.thumbnail}">
+        <h3>${song.title}</h3>
+        <div class="small">⏱ ${song.duration || 0}s</div>
+    `;
 }
 
-async function control(action){
-    await fetch("/"+action, {method:"POST"});
+function renderQueue(queue){
+    let html = "";
+
+    for(let g in queue){
+        queue[g].forEach(q => {
+            html += `
+            <div class="queue-item">
+                <div>${q}</div>
+            </div>`;
+        });
+    }
+
+    document.getElementById("queue").innerHTML = html || "Vide";
 }
 
-setInterval(refresh, 2000);
-refresh();
+function send(action){
+    fetch("/"+action, {method:"POST"});
+}
+
 </script>
 
 </body>

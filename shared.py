@@ -1,7 +1,5 @@
 queues = {}
 current = {}
-loop = {
-    "song": False,
-    "queue": False
-}
+history = {}
+loop = {"song": False, "queue": False}
 bot = None

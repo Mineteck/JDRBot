@@ -1,10 +1,10 @@
 import threading
 from bot import run_bot
-from web import app
+from web import run_web
 
-def run_web():
-    app.run(host="0.0.0.0", port=8000, debug=False)
+def start_web():
+    run_web()
 
-threading.Thread(target=run_web, daemon=True).start()
+threading.Thread(target=start_web).start()
 
 run_bot()
