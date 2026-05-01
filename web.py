@@ -82,4 +82,9 @@ socketio.start_background_task(background_updater)
 
 
 def run_web():
-    socketio.run(app, host="0.0.0.0", port=8000)
+    socketio.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        allow_unsafe_werkzeug=True
+    )
