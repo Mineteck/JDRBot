@@ -41,6 +41,24 @@ FFMPEG_OPTIONS = {
 _playing_lock = {}
 
 
+async def auto_disconnect(vc):
+    await asyncio.sleep(10)
+
+    if vc.channel:
+        humans = [m for m in vc.channel.members if not m.bot]
+        if len(humans) == 0:
+            await vc.disconnect()
+
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    for vc in bot.voice_clients:
+        if vc.channel:
+            humans = [m for m in vc.channel.members if not m.bot]
+
+            if len(humans) == 0:
+                bot.loop.create_task(auto_disconnect(vc))
+
 async def play_next(ctx):
     guild_id = ctx.guild.id
 
