@@ -39,25 +39,38 @@ FFMPEG_OPTIONS = {
 
 # 🔒 anti double trigger
 _playing_lock = {}
+disconnect_tasks = {}
 
 
-async def auto_disconnect(vc):
+async def auto_disconnect(vc, guild_id):
     await asyncio.sleep(10)
 
     if vc.channel:
         humans = [m for m in vc.channel.members if not m.bot]
+
         if len(humans) == 0:
             await vc.disconnect()
+
+    # nettoyage
+    disconnect_tasks.pop(guild_id, None)
 
 
 @bot.event
 async def on_voice_state_update(member, before, after):
     for vc in bot.voice_clients:
         if vc.channel:
+            guild_id = vc.guild.id
+
             humans = [m for m in vc.channel.members if not m.bot]
 
             if len(humans) == 0:
-                bot.loop.create_task(auto_disconnect(vc))
+                # évite double task
+                if guild_id not in disconnect_tasks:
+                    task = bot.loop.create_task(auto_disconnect(vc, guild_id))
+                    disconnect_tasks[guild_id] = task
+                elif guild_id in disconnect_tasks:
+                    disconnect_tasks[guild_id].cancel()
+                    disconnect_tasks.pop(guild_id, None)
 
 async def play_next(ctx):
     guild_id = ctx.guild.id
