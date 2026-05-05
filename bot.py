@@ -103,8 +103,11 @@ async def update_status(guild_id):
 async def auto_disconnect(vc, guild_id):
     await asyncio.sleep(10)
 
-    if vc.channel:
-        humans = [m for m in vc.channel.members if not m.bot]
+    if not vc.channel:
+        disconnect_tasks.pop(guild_id, None)
+        return
+
+    humans = [m for m in vc.channel.members if not m.bot]
 
     if len(humans) == 0:
         await vc.disconnect()
@@ -265,12 +268,22 @@ async def resume(ctx):
 # 🔁 STATUS LOOP
 async def status_loop():
     await bot.wait_until_ready()
-    if not bot.voice_clients:
-        await bot.change_presence(activity=None)
+
     while not bot.is_closed():
-        for guild_id in list(shared.current.keys()):
-            await update_status(guild_id)
+
+        # 🧹 si le bot n'est connecté à aucun vocal → reset status
+        if len(bot.voice_clients) == 0:
+            await bot.change_presence(activity=None)
+
+        else:
+            for guild_id in list(shared.current.keys()):
+                await update_status(guild_id)
+
         await asyncio.sleep(5)
+
+@bot.event
+async def on_ready():
+    await bot.change_presence(activity=None)
 
 
 def run_bot():
