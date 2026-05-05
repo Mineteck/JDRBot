@@ -52,6 +52,13 @@ last_status = ""
 async def update_status(guild_id):
     global last_status
 
+    vc = discord.utils.get(bot.voice_clients, guild__id=guild_id)
+
+    # ❌ si pas connecté → reset status
+    if not vc or not vc.is_connected():
+        await bot.change_presence(activity=None)
+        return
+
     if guild_id not in shared.current:
         return
 
@@ -60,24 +67,25 @@ async def update_status(guild_id):
     duration = track.get("duration", 0)
 
     start = shared.timestamps.get(guild_id)
-    offset = shared.pause_offset.get(guild_id, 0)
-
-    vc = discord.utils.get(bot.voice_clients, guild__id=guild_id)
+    pause_offset = shared.pause_offset.get(guild_id, 0)
+    paused_at = shared.paused_at.get(guild_id)
 
     if not start:
         return
 
-    if vc and vc.is_paused():
-        elapsed = int(shared.paused_at.get(guild_id, time.time()) - start - offset)
+    # 🧠 CALCUL CLEAN
+    if vc.is_paused() and paused_at:
+        elapsed = int(paused_at - start - pause_offset)
         status = f"⏸️ Pause • {title}"
     else:
-        elapsed = int(time.time() - start - offset)
+        elapsed = int(time.time() - start - pause_offset)
 
         remaining = max(duration - elapsed, 0)
         m, s = divmod(remaining, 60)
 
         status = f"🎵 {title} ({m}:{s:02d})"
 
+    # 🔒 anti spam discord API
     if status == last_status:
         return
 
