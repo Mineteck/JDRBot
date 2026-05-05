@@ -59,19 +59,25 @@ async def update_status(guild_id):
     title = track["title"]
     duration = track.get("duration", 0)
 
-    start = shared.timestamps.get(guild_id, time.time())
-    elapsed = int(time.time() - start)
-    remaining = max(duration - elapsed, 0)
+    start = shared.timestamps.get(guild_id)
+    offset = shared.pause_offset.get(guild_id, 0)
 
     vc = discord.utils.get(bot.voice_clients, guild__id=guild_id)
 
+    if not start:
+        return
+
     if vc and vc.is_paused():
+        elapsed = int(shared.paused_at.get(guild_id, time.time()) - start - offset)
         status = f"⏸️ Pause • {title}"
     else:
+        elapsed = int(time.time() - start - offset)
+
+        remaining = max(duration - elapsed, 0)
         m, s = divmod(remaining, 60)
+
         status = f"🎵 {title} ({m}:{s:02d})"
 
-    # 🚫 anti spam discord
     if status == last_status:
         return
 
@@ -92,8 +98,16 @@ async def auto_disconnect(vc, guild_id):
     if vc.channel:
         humans = [m for m in vc.channel.members if not m.bot]
 
-        if len(humans) == 0:
-            await vc.disconnect()
+    if len(humans) == 0:
+        await vc.disconnect()
+
+        # 🧹 CLEAN
+        shared.current.pop(guild_id, None)
+        shared.timestamps.pop(guild_id, None)
+        shared.pause_offset.pop(guild_id, None)
+        shared.paused_at.pop(guild_id, None)
+
+        await bot.change_presence(activity=None)
 
     disconnect_tasks.pop(guild_id, None)
 
@@ -160,6 +174,8 @@ async def play_next(ctx):
 
     shared.current[guild_id] = track
     shared.timestamps[guild_id] = time.time()
+    shared.pause_offset[guild_id] = 0
+    shared.paused_at[guild_id] = None
 
     await update_status(guild_id)
 
@@ -219,6 +235,9 @@ async def skip(ctx):
 @bot.command()
 async def pause(ctx):
     ctx.voice_client.pause()
+
+    shared.paused_at[ctx.guild.id] = time.time()
+
     await update_status(ctx.guild.id)
 
 
@@ -226,13 +245,20 @@ async def pause(ctx):
 @bot.command()
 async def resume(ctx):
     ctx.voice_client.resume()
-    shared.timestamps[ctx.guild.id] = time.time()
+
+    paused = shared.paused_at.get(ctx.guild.id)
+    if paused:
+        delta = time.time() - paused
+        shared.pause_offset[ctx.guild.id] = shared.pause_offset.get(ctx.guild.id, 0) + delta
+
     await update_status(ctx.guild.id)
 
 
 # 🔁 STATUS LOOP
 async def status_loop():
     await bot.wait_until_ready()
+    if not bot.voice_clients:
+        await bot.change_presence(activity=None)
     while not bot.is_closed():
         for guild_id in list(shared.current.keys()):
             await update_status(guild_id)
