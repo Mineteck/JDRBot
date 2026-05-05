@@ -80,10 +80,10 @@ async def update_status(guild_id):
     else:
         elapsed = int(time.time() - start - pause_offset)
 
-        remaining = max(duration - elapsed, 0)
-        m, s = divmod(remaining, 60)
+        #remaining = max(duration - elapsed, 0)
+        #m, s = divmod(remaining, 60)
 
-        status = f"🎵 {title} ({m}:{s:02d})"
+        status = f"🎵 {title}"
 
     # 🔒 anti spam discord API
     if status == last_status:
