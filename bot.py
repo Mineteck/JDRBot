@@ -13,9 +13,16 @@ TOKEN = os.getenv("TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
 
+# ✅ BOT CLASS (fix loop error)
+class MyBot(commands.Bot):
+    async def setup_hook(self):
+        self.loop.create_task(status_loop())
+
+
+bot = MyBot(command_prefix="!", intents=intents)
 shared.bot = bot
+
 
 # 🔥 YTDLP STABLE
 YDL_OPTIONS = {
@@ -37,11 +44,14 @@ FFMPEG_OPTIONS = {
     "options": "-vn"
 }
 
-# 🔒 anti double trigger
-_playing_lock = {}
 disconnect_tasks = {}
+last_status = ""
 
+
+# 🎯 STATUS
 async def update_status(guild_id):
+    global last_status
+
     if guild_id not in shared.current:
         return
 
@@ -61,14 +71,21 @@ async def update_status(guild_id):
         m, s = divmod(remaining, 60)
         status = f"🎵 {title} ({m}:{s:02d})"
 
+    # 🚫 anti spam discord
+    if status == last_status:
+        return
+
+    last_status = status
+
     await bot.change_presence(
         activity=discord.Activity(
             type=discord.ActivityType.listening,
-            name=status
+            name=status[:100]
         )
     )
 
 
+# 🔌 AUTO DISCONNECT
 async def auto_disconnect(vc, guild_id):
     await asyncio.sleep(10)
 
@@ -78,7 +95,6 @@ async def auto_disconnect(vc, guild_id):
         if len(humans) == 0:
             await vc.disconnect()
 
-    # nettoyage
     disconnect_tasks.pop(guild_id, None)
 
 
@@ -96,11 +112,12 @@ async def on_voice_state_update(member, before, after):
                 task = bot.loop.create_task(auto_disconnect(vc, guild_id))
                 disconnect_tasks[guild_id] = task
         else:
-            # quelqu’un revient → annule le disconnect
             if guild_id in disconnect_tasks:
                 disconnect_tasks[guild_id].cancel()
                 disconnect_tasks.pop(guild_id, None)
 
+
+# ▶️ PLAY NEXT
 async def play_next(ctx):
     guild_id = ctx.guild.id
 
@@ -112,21 +129,10 @@ async def play_next(ctx):
         track = shared.current[guild_id]
 
     else:
-        # queue normale
-        if shared.queues.get(guild_id):
-            if len(shared.queues[guild_id]) > 0:
-                track = shared.queues[guild_id].pop(0)
-
-                # save history
-                shared.history.setdefault(guild_id, []).append(track)
-
-            else:
-                track = None
+        if shared.queues.get(guild_id) and len(shared.queues[guild_id]) > 0:
+            track = shared.queues[guild_id].pop(0)
+            shared.history.setdefault(guild_id, []).append(track)
         else:
-            track = None
-
-        # 🔁 LOOP QUEUE
-        if not track:
             if shared.loop["queue"] and shared.history.get(guild_id):
                 shared.queues[guild_id] = shared.history[guild_id].copy()
                 track = shared.queues[guild_id].pop(0)
@@ -148,20 +154,17 @@ async def play_next(ctx):
         if error:
             print("FFMPEG ERROR:", error)
 
-        asyncio.run_coroutine_threadsafe(
-            play_next(ctx),
-            bot.loop
-        )
+        asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
 
     ctx.voice_client.play(source, after=after)
 
-    # ✅ update current propre
     shared.current[guild_id] = track
     shared.timestamps[guild_id] = time.time()
+
     await update_status(guild_id)
 
 
-# 🎛 LOOP COMMAND
+# 🎛 LOOP
 @bot.command()
 async def loop(ctx, mode=None):
     if mode == "song":
@@ -186,6 +189,7 @@ async def play(ctx, *, search):
         await ctx.author.voice.channel.connect()
 
     guild_id = ctx.guild.id
+
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
         info = ydl.extract_info(search, download=False)
 
@@ -222,22 +226,18 @@ async def pause(ctx):
 @bot.command()
 async def resume(ctx):
     ctx.voice_client.resume()
-
-    paused_time = shared.timestamps.get(ctx.guild.id, time.time())
-    elapsed = time.time() - paused_time
-
-    shared.timestamps[ctx.guild.id] = time.time() - elapsed
-
+    shared.timestamps[ctx.guild.id] = time.time()
     await update_status(ctx.guild.id)
 
+
+# 🔁 STATUS LOOP
 async def status_loop():
     await bot.wait_until_ready()
     while not bot.is_closed():
-        for guild_id in shared.current.keys():
+        for guild_id in list(shared.current.keys()):
             await update_status(guild_id)
         await asyncio.sleep(5)
 
 
 def run_bot():
-    bot.loop.create_task(status_loop())
     bot.run(TOKEN)
