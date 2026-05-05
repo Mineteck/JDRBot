@@ -5,6 +5,7 @@ import asyncio
 import os
 from dotenv import load_dotenv
 import shared
+import time
 
 load_dotenv()
 TOKEN = os.getenv("TOKEN")
@@ -15,7 +16,6 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 shared.bot = bot
-
 
 # 🔥 YTDLP STABLE
 YDL_OPTIONS = {
@@ -41,6 +41,33 @@ FFMPEG_OPTIONS = {
 _playing_lock = {}
 disconnect_tasks = {}
 
+async def update_status(guild_id):
+    if guild_id not in shared.current:
+        return
+
+    track = shared.current[guild_id]
+    title = track["title"]
+    duration = track.get("duration", 0)
+
+    start = shared.timestamps.get(guild_id, time.time())
+    elapsed = int(time.time() - start)
+    remaining = max(duration - elapsed, 0)
+
+    vc = discord.utils.get(bot.voice_clients, guild__id=guild_id)
+
+    if vc and vc.is_paused():
+        status = f"⏸️ Pause • {title}"
+    else:
+        m, s = divmod(remaining, 60)
+        status = f"🎵 {title} ({m}:{s:02d})"
+
+    await bot.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.listening,
+            name=status
+        )
+    )
+
 
 async def auto_disconnect(vc, guild_id):
     await asyncio.sleep(10)
@@ -58,19 +85,21 @@ async def auto_disconnect(vc, guild_id):
 @bot.event
 async def on_voice_state_update(member, before, after):
     for vc in bot.voice_clients:
-        if vc.channel:
-            guild_id = vc.guild.id
+        if not vc.channel:
+            continue
 
-            humans = [m for m in vc.channel.members if not m.bot]
+        guild_id = vc.guild.id
+        humans = [m for m in vc.channel.members if not m.bot]
 
-            if len(humans) == 0:
-                # évite double task
-                if guild_id not in disconnect_tasks:
-                    task = bot.loop.create_task(auto_disconnect(vc, guild_id))
-                    disconnect_tasks[guild_id] = task
-                elif guild_id in disconnect_tasks:
-                    disconnect_tasks[guild_id].cancel()
-                    disconnect_tasks.pop(guild_id, None)
+        if len(humans) == 0:
+            if guild_id not in disconnect_tasks:
+                task = bot.loop.create_task(auto_disconnect(vc, guild_id))
+                disconnect_tasks[guild_id] = task
+        else:
+            # quelqu’un revient → annule le disconnect
+            if guild_id in disconnect_tasks:
+                disconnect_tasks[guild_id].cancel()
+                disconnect_tasks.pop(guild_id, None)
 
 async def play_next(ctx):
     guild_id = ctx.guild.id
@@ -128,6 +157,8 @@ async def play_next(ctx):
 
     # ✅ update current propre
     shared.current[guild_id] = track
+    shared.timestamps[guild_id] = time.time()
+    await update_status(guild_id)
 
 
 # 🎛 LOOP COMMAND
@@ -184,6 +215,7 @@ async def skip(ctx):
 @bot.command()
 async def pause(ctx):
     ctx.voice_client.pause()
+    await update_status(ctx.guild.id)
 
 
 # ▶ resume
@@ -191,6 +223,21 @@ async def pause(ctx):
 async def resume(ctx):
     ctx.voice_client.resume()
 
+    paused_time = shared.timestamps.get(ctx.guild.id, time.time())
+    elapsed = time.time() - paused_time
+
+    shared.timestamps[ctx.guild.id] = time.time() - elapsed
+
+    await update_status(ctx.guild.id)
+
+async def status_loop():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        for guild_id in shared.current.keys():
+            await update_status(guild_id)
+        await asyncio.sleep(5)
+
 
 def run_bot():
+    bot.loop.create_task(status_loop())
     bot.run(TOKEN)
