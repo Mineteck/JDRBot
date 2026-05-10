@@ -149,24 +149,45 @@ async def play_next(ctx):
     if ctx.voice_client is None:
         return
 
+    queue = shared.queues.get(guild_id, [])
+
+    if len(queue) == 0:
+        shared.current.pop(guild_id, None)
+        return
+
+    # init index
+    if guild_id not in shared.current_index:
+        shared.current_index[guild_id] = 0
+
     # 🔁 LOOP SONG
     if shared.loop["song"] and shared.current.get(guild_id):
         track = shared.current[guild_id]
 
     else:
-        if shared.queues.get(guild_id) and len(shared.queues[guild_id]) > 0:
-            track = shared.queues[guild_id].pop(0)
-            shared.history.setdefault(guild_id, []).append(track)
-        else:
-            if shared.loop["queue"] and shared.history.get(guild_id):
-                shared.queues[guild_id] = shared.history[guild_id].copy()
-                track = shared.queues[guild_id].pop(0)
+
+        # musique suivante
+        if shared.current.get(guild_id):
+            shared.current_index[guild_id] += 1
+
+        # fin queue
+        if shared.current_index[guild_id] >= len(queue):
+
+            if shared.loop["queue"]:
+                shared.current_index[guild_id] = 0
             else:
+                shared.current.pop(guild_id, None)
                 return
 
+        track = queue[shared.current_index[guild_id]]
+
     # 🎧 STREAM
+    loop = asyncio.get_running_loop()
+
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-        info = ydl.extract_info(track["url"], download=False)
+        info = await loop.run_in_executor(
+            None,
+            lambda: ydl.extract_info(track["url"], download=False)
+        )
 
         if "entries" in info:
             info = info["entries"][0]
@@ -179,7 +200,10 @@ async def play_next(ctx):
         if error:
             print("FFMPEG ERROR:", error)
 
-        asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+        asyncio.run_coroutine_threadsafe(
+            play_next(ctx),
+            bot.loop
+        )
 
     ctx.voice_client.play(source, after=after)
 
@@ -217,8 +241,13 @@ async def play(ctx, *, search):
 
     guild_id = ctx.guild.id
 
+    loop = asyncio.get_running_loop()
+
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-        info = ydl.extract_info(search, download=False)
+        info = await loop.run_in_executor(
+            None,
+            lambda: ydl.extract_info(search, download=False)
+        )
 
         if "entries" in info:
             info = info["entries"][0]
@@ -232,8 +261,20 @@ async def play(ctx, *, search):
 
     shared.queues.setdefault(guild_id, []).append(track)
 
-    if not ctx.voice_client.is_playing():
+    # init index
+    if guild_id not in shared.current_index:
+        shared.current_index[guild_id] = 0
+
+    # ▶ démarre si rien joue
+    if (
+        not ctx.voice_client.is_playing()
+        and not ctx.voice_client.is_paused()
+        and not shared.current.get(guild_id)
+    ):
+        shared.current_index[guild_id] = -1
         await play_next(ctx)
+
+    await ctx.send(f"🎶 Ajouté : {track['title']}")
 
 
 # ⏭ skip
@@ -292,13 +333,21 @@ async def queue(ctx):
 
     msg = "🎶 Queue actuelle :\n\n"
 
+    current = shared.current_index.get(guild_id, 0)
+
     for i, track in enumerate(queue):
+
+        playing = ""
+
+        if i == current:
+            playing = "▶ "
+
         title = track["title"]
 
         duration = track.get("duration", 0)
         m, s = divmod(duration, 60)
 
-        msg += f"`{i}` • {title} ({m}:{s:02d})\n"
+        msg += f"{playing}`{i}` • {title} ({m}:{s:02d})\n"
 
     await ctx.send(msg[:2000])
 
@@ -315,6 +364,22 @@ async def remove(ctx, index: int):
         return await ctx.send("❌ Index invalide")
 
     removed = queue.pop(index)
+
+    current = shared.current_index.get(guild_id, 0)
+
+    # si on supprime avant la musique actuelle
+    if index < current:
+        shared.current_index[guild_id] -= 1
+
+    # si on supprime la musique actuelle
+    elif index == current:
+
+        shared.current.pop(guild_id, None)
+
+        shared.current_index[guild_id] -= 1
+
+        if ctx.voice_client.is_playing():
+            ctx.voice_client.stop()
 
     await ctx.send(f"🗑️ Supprimé : {removed['title']}")
 

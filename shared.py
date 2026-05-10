@@ -4,5 +4,6 @@ history = {}
 timestamps = {}
 paused_at = {}
 pause_offset = {}
+current_index = {}
 loop = {"song": False, "queue": False}
 bot = None
