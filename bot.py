@@ -333,13 +333,13 @@ async def queue(ctx):
 
     msg = "🎶 Queue actuelle :\n\n"
 
-    current = shared.current_index.get(guild_id, 0)
+    current_track = shared.current.get(guild_id)
 
     for i, track in enumerate(queue):
 
         playing = ""
 
-        if i == current:
+        if current_track and track["url"] == current_track["url"]:
             playing = "▶ "
 
         title = track["title"]
