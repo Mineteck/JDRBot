@@ -149,42 +149,33 @@ async def play_next(ctx):
     if ctx.voice_client is None:
         return
 
-    # évite double lancement
-    if ctx.voice_client.is_playing():
-        return
-
     queue = shared.queues.get(guild_id, [])
 
-    if len(queue) == 0:
+    if not queue:
         shared.current.pop(guild_id, None)
+        shared.current_index[guild_id] = 0
         return
 
     # init index
     if guild_id not in shared.current_index:
         shared.current_index[guild_id] = 0
 
-    # 🔁 LOOP SONG
-    if shared.loop["song"] and shared.current.get(guild_id):
-        track = shared.current[guild_id]
+    index = shared.current_index[guild_id]
 
-    else:
+    # sécurité
+    if index >= len(queue):
+        if shared.loop["queue"]:
+            index = 0
+        else:
+            shared.current.pop(guild_id, None)
+            return
 
-        # musique suivante seulement si une musique joue déjà
-        if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
-            shared.current_index[guild_id] += 1
+    track = queue[index]
 
-        # fin queue
-        if shared.current_index[guild_id] >= len(queue):
+    # update current BEFORE play
+    shared.current[guild_id] = track
 
-            if shared.loop["queue"]:
-                shared.current_index[guild_id] = 0
-            else:
-                shared.current.pop(guild_id, None)
-                return
-
-        track = queue[shared.current_index[guild_id]]
-
-    # 🎧 STREAM
+    # stream (async safe)
     loop = asyncio.get_running_loop()
 
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -204,15 +195,16 @@ async def play_next(ctx):
         if error:
             print("FFMPEG ERROR:", error)
 
+        # avance index UNIQUEMENT ici
+        shared.current_index[guild_id] += 1
+
         asyncio.run_coroutine_threadsafe(
             play_next(ctx),
             bot.loop
         )
-    if ctx.voice_client.is_playing():
-        return
+
     ctx.voice_client.play(source, after=after)
 
-    shared.current[guild_id] = track
     shared.timestamps[guild_id] = time.time()
     shared.pause_offset[guild_id] = 0
     shared.paused_at[guild_id] = None
@@ -254,6 +246,20 @@ async def play(ctx, *, search):
             lambda: ydl.extract_info(search, download=False)
         )
 
+        if info.get("_type") == "playlist":
+            for entry in info["entries"]:
+                if not entry:
+                    continue
+        
+                shared.queues[guild_id].append({
+                    "title": entry.get("title"),
+                    "url": entry.get("webpage_url"),
+                    "thumbnail": entry.get("thumbnail"),
+                    "duration": entry.get("duration", 0)
+                })
+        
+            await ctx.send(f"📃 Playlist ajoutée : {len(info['entries'])} musiques")
+
         if "entries" in info:
             info = info["entries"][0]
 
@@ -265,6 +271,10 @@ async def play(ctx, *, search):
         }
 
     shared.queues.setdefault(guild_id, []).append(track)
+
+    # si première musique → reset index
+    if guild_id not in shared.current_index:
+        shared.current_index[guild_id] = 0
 
     # init index
     if guild_id not in shared.current_index:
