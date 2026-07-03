@@ -28,7 +28,7 @@ shared.bot = bot
 YDL_OPTIONS = {
     "format": "bestaudio[ext=opus]/bestaudio/best",
     "quiet": True,
-    "noplaylist": True,
+    "noplaylist": False,
     "retries": 10,
     "extractor_retries": 5,
     "extractor_args": {
