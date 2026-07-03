@@ -240,6 +240,11 @@ async def play(ctx, *, search):
     loop = asyncio.get_running_loop()
 
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+        
+        if "list=" in search:
+            playlist_id = search.split("list=")[1].split("&")[0]
+            search = f"https://www.youtube.com/playlist?list={playlist_id}"
+
         info = await loop.run_in_executor(
             None,
             lambda: ydl.extract_info(search, download=False)
