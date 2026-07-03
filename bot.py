@@ -28,7 +28,7 @@ shared.bot = bot
 YDL_OPTIONS = {
     "format": "bestaudio[ext=opus]/bestaudio/best",
     "quiet": True,
-    "noplaylist": False,
+    "noplaylist": True,
     "retries": 10,
     "extractor_retries": 5,
     "extractor_args": {
@@ -146,12 +146,11 @@ async def on_voice_state_update(member, before, after):
 async def play_next(ctx):
     guild_id = ctx.guild.id
 
-    vc = ctx.voice_client
-    if vc is None:
+    if ctx.voice_client is None:
         return
 
-    # ❌ sécurité anti double play
-    if vc.is_playing() or vc.is_paused():
+    # évite double lancement
+    if ctx.voice_client.is_playing():
         return
 
     queue = shared.queues.get(guild_id, [])
@@ -164,16 +163,17 @@ async def play_next(ctx):
     if guild_id not in shared.current_index:
         shared.current_index[guild_id] = 0
 
-    # 🔁 SONG LOOP
+    # 🔁 LOOP SONG
     if shared.loop["song"] and shared.current.get(guild_id):
         track = shared.current[guild_id]
 
     else:
 
-        # avancer index UNE seule fois ici
-        shared.current_index[guild_id] += 1
+        # musique suivante seulement si une musique joue déjà
+        if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
+            shared.current_index[guild_id] += 1
 
-        # si dépasse queue
+        # fin queue
         if shared.current_index[guild_id] >= len(queue):
 
             if shared.loop["queue"]:
@@ -184,7 +184,7 @@ async def play_next(ctx):
 
         track = queue[shared.current_index[guild_id]]
 
-    # 🎧 STREAM (yt-dlp safe thread)
+    # 🎧 STREAM
     loop = asyncio.get_running_loop()
 
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
@@ -204,11 +204,14 @@ async def play_next(ctx):
         if error:
             print("FFMPEG ERROR:", error)
 
-        asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+        asyncio.run_coroutine_threadsafe(
+            play_next(ctx),
+            bot.loop
+        )
+    if ctx.voice_client.is_playing():
+        return
+    ctx.voice_client.play(source, after=after)
 
-    vc.play(source, after=after)
-
-    # 📌 update state
     shared.current[guild_id] = track
     shared.timestamps[guild_id] = time.time()
     shared.pause_offset[guild_id] = 0
@@ -242,49 +245,15 @@ async def play(ctx, *, search):
         await ctx.author.voice.channel.connect()
 
     guild_id = ctx.guild.id
+
     loop = asyncio.get_running_loop()
 
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-
-        # détecte playlist proprement
-        is_playlist_url = "list=" in search
-
-        if is_playlist_url:
-            try:
-                playlist_id = search.split("list=")[1].split("&")[0]
-                search = f"https://www.youtube.com/playlist?list={playlist_id}"
-            except:
-                pass
-
         info = await loop.run_in_executor(
             None,
             lambda: ydl.extract_info(search, download=False)
         )
 
-    shared.queues.setdefault(guild_id, [])
-
-    # 🎶 PLAYLIST
-    if info.get("_type") == "playlist" and "entries" in info:
-
-        count = 0
-
-        for entry in info["entries"]:
-            if not entry:
-                continue
-
-            shared.queues[guild_id].append({
-                "title": entry.get("title", "Titre inconnu"),
-                "url": entry.get("webpage_url"),
-                "thumbnail": entry.get("thumbnail"),
-                "duration": entry.get("duration", 0)
-            })
-
-            count += 1
-
-        await ctx.send(f"📃 Playlist ajoutée : {count} musiques")
-
-    # 🎵 VIDÉO SIMPLE
-    else:
         if "entries" in info:
             info = info["entries"][0]
 
@@ -295,15 +264,13 @@ async def play(ctx, *, search):
             "duration": info.get("duration", 0)
         }
 
-        shared.queues[guild_id].append(track)
-
-        await ctx.send(f"🎶 Ajouté : {track['title']}")
+    shared.queues.setdefault(guild_id, []).append(track)
 
     # init index
     if guild_id not in shared.current_index:
         shared.current_index[guild_id] = 0
 
-    # ▶ start si rien joue
+    # ▶ démarre si rien joue
     if (
         not ctx.voice_client.is_playing()
         and not ctx.voice_client.is_paused()
@@ -311,6 +278,8 @@ async def play(ctx, *, search):
     ):
         shared.current_index[guild_id] = 0
         await play_next(ctx)
+
+    await ctx.send(f"🎶 Ajouté : {track['title']}")
 
 
 # ⏭ skip
