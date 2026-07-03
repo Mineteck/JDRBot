@@ -149,10 +149,6 @@ async def play_next(ctx):
     if ctx.voice_client is None:
         return
 
-    # évite double lancement
-    if ctx.voice_client.is_playing():
-        return
-
     queue = shared.queues.get(guild_id, [])
 
     if len(queue) == 0:
@@ -168,12 +164,10 @@ async def play_next(ctx):
         track = shared.current[guild_id]
 
     else:
+        # avancer index UNE SEULE FOIS ici
+        shared.current_index[guild_id] += 1
 
-        # musique suivante seulement si une musique joue déjà
-        if ctx.voice_client.is_playing() or ctx.voice_client.is_paused():
-            shared.current_index[guild_id] += 1
-
-        # fin queue
+        # si dépasse queue
         if shared.current_index[guild_id] >= len(queue):
 
             if shared.loop["queue"]:
@@ -204,12 +198,12 @@ async def play_next(ctx):
         if error:
             print("FFMPEG ERROR:", error)
 
-        asyncio.run_coroutine_threadsafe(
-            play_next(ctx),
-            bot.loop
-        )
-    if ctx.voice_client.is_playing():
-        return
+        asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop)
+
+    # ❌ SUPPRIME CE BLOC (important)
+    # if ctx.voice_client.is_playing():
+    #     return
+
     ctx.voice_client.play(source, after=after)
 
     shared.current[guild_id] = track
@@ -245,18 +239,20 @@ async def play(ctx, *, search):
         await ctx.author.voice.channel.connect()
 
     guild_id = ctx.guild.id
-
     loop = asyncio.get_running_loop()
 
     with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-    
-        if "list=" in search:
+
+        # détecte playlist proprement
+        is_playlist_url = "list=" in search
+
+        if is_playlist_url:
             try:
                 playlist_id = search.split("list=")[1].split("&")[0]
                 search = f"https://www.youtube.com/playlist?list={playlist_id}"
             except:
                 pass
-    
+
         info = await loop.run_in_executor(
             None,
             lambda: ydl.extract_info(search, download=False)
@@ -264,31 +260,28 @@ async def play(ctx, *, search):
 
     shared.queues.setdefault(guild_id, [])
 
-    # 🎶 Playlist
-    if "entries" in info and info.get("_type") == "playlist":
+    # 🎶 PLAYLIST
+    if info.get("_type") == "playlist" and "entries" in info:
 
         count = 0
 
         for entry in info["entries"]:
-
             if not entry:
                 continue
 
-            track = {
+            shared.queues[guild_id].append({
                 "title": entry.get("title", "Titre inconnu"),
                 "url": entry.get("webpage_url"),
                 "thumbnail": entry.get("thumbnail"),
                 "duration": entry.get("duration", 0)
-            }
+            })
 
-            shared.queues[guild_id].append(track)
             count += 1
 
         await ctx.send(f"📃 Playlist ajoutée : {count} musiques")
 
-    # 🎵 Vidéo unique
+    # 🎵 VIDÉO SIMPLE
     else:
-
         if "entries" in info:
             info = info["entries"][0]
 
@@ -307,7 +300,7 @@ async def play(ctx, *, search):
     if guild_id not in shared.current_index:
         shared.current_index[guild_id] = 0
 
-    # ▶ démarre si rien joue
+    # ▶ start si rien joue
     if (
         not ctx.voice_client.is_playing()
         and not ctx.voice_client.is_paused()
@@ -315,8 +308,6 @@ async def play(ctx, *, search):
     ):
         shared.current_index[guild_id] = 0
         await play_next(ctx)
-
-    await ctx.send(f"🎶 Ajouté : {track['title']}")
 
 
 # ⏭ skip
