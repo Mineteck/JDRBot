@@ -19,7 +19,6 @@ class MyBot(commands.Bot):
     async def setup_hook(self):
         self.loop.create_task(status_loop())
 
-
 bot = MyBot(command_prefix="!", intents=intents)
 shared.bot = bot
 
