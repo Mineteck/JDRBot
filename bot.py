@@ -178,16 +178,27 @@ async def play_next(ctx):
     # stream (async safe)
     loop = asyncio.get_running_loop()
 
-    with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-        info = await loop.run_in_executor(
-            None,
-            lambda: ydl.extract_info(track["url"], download=False)
-        )
+    try:
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            info = await loop.run_in_executor(
+                None,
+                lambda: ydl.extract_info(track["url"], download=False)
+            )
 
         if "entries" in info:
             info = info["entries"][0]
 
         stream = info["url"]
+
+    except Exception as e:
+
+        await ctx.send(
+            f"❌ Impossible de lire : {track['title']}"
+        )
+
+        shared.current_index[guild_id] += 1
+
+        return await play_next(ctx)
 
     source = discord.FFmpegPCMAudio(stream, **FFMPEG_OPTIONS)
 
@@ -239,12 +250,17 @@ async def play(ctx, *, search):
     guild_id = ctx.guild.id
     loop = asyncio.get_running_loop()
 
-    with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
-        if "list=" in search and "playlist" not in search:
-            search = "https://www.youtube.com/playlist?list=" + search.split("list=")[1].split("&")[0]
-        info = await loop.run_in_executor(
-            None,
-            lambda: ydl.extract_info(search, download=False)
+    try:
+        with yt_dlp.YoutubeDL(YDL_OPTIONS) as ydl:
+            if "list=" in search and "playlist" not in search:
+                search = "https://www.youtube.com/playlist?list=" + search.split("list=")[1].split("&")[0]
+            info = await loop.run_in_executor(
+                None,
+                lambda: ydl.extract_info(search, download=False)
+            )
+    except Exception as e:
+        return await ctx.send(
+            f"❌ Impossible de charger cette vidéo/playlist.\n```{str(e)[:150]}```"
         )
 
     shared.queues.setdefault(guild_id, [])
@@ -256,16 +272,21 @@ async def play(ctx, *, search):
 
         for entry in info["entries"]:
             if not entry:
+                await ctx.send("❌ Une vidéo de la playlist n'a pas pu être chargée.")
                 continue
+            try:
+                track = {
+                    "title": entry.get("title", "Unknown"),
+                    "url": entry.get("webpage_url"),
+                    "thumbnail": entry.get("thumbnail"),
+                    "duration": entry.get("duration", 0)
+                }
+                shared.queues[guild_id].append(track)
+                added += 1
+                await ctx.send(f"➕ {track['title']}")
 
-            shared.queues[guild_id].append({
-                "title": entry.get("title", "Unknown"),
-                "url": entry.get("webpage_url"),
-                "thumbnail": entry.get("thumbnail"),
-                "duration": entry.get("duration", 0)
-            })
-            added += 1
-
+            except Exception:
+                await ctx.send("❌ Une vidéo de la playlist n'a pas pu être ajoutée.")
         await ctx.send(f"📃 Playlist ajoutée : {added} musiques")
 
     else:
