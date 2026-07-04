@@ -273,6 +273,13 @@ async def play(ctx, *, search):
             if not entry:
                 await ctx.send("❌ Une vidéo de la playlist n'a pas pu être chargée.")
                 continue
+            
+            url = entry.get("webpage_url")
+
+            if not url:
+                await ctx.send("❌ Une vidéo de la playlist est indisponible.")
+                continue
+                
             try:
                 track = {
                     "title": entry.get("title", "Unknown"),
